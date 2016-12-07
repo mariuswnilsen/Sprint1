@@ -1,0 +1,9 @@
+﻿//DROP TABLE IF EXISTS Address;  
+
+/*
+CREATE TABLE Address  (  
+       INDEX [idx_Address] CLUSTERED (HAIPAddressId ASC)    
+       PARTITIONED BY HASH (HAIPAddressId))   
+       AS SELECT * FROM @AddressAndZipCode;
+
+*/

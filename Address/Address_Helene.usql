@@ -1,0 +1,152 @@
+﻿
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+DECLARE EXTERNAL @inputAddress string = "/HafslundStrom/Input/HafslundStromContext/Address.json";
+DECLARE EXTERNAL @inputZipCode string = "/HafslundStrom/Input/HafslundStromContext/ZipCode.json";
+DECLARE EXTERNAL @inputGeo string = "/HafslundStrom/ReferenceData/NorwegianZipCodesAndMunicipalCountyGeo.csv";
+
+DECLARE EXTERNAL @outTest string = "/HafslundStrom/Staging/Address.csv";
+
+// Extract + jsonify // 
+
+//Address
+@inAddressFile= 
+    EXTRACT jsonString string 
+    FROM @inputAddress
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyAddress = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recAddress 
+    FROM @inAddressFile; 
+
+//ZipCode
+@inZipFile= 
+    EXTRACT jsonString string 
+    FROM @inputZipCode 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyZip = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recZip 
+    FROM @inZipFile;
+
+//Geo
+@GeoLocation = EXTRACT
+    Postnummer string,
+    Poststed string,
+    PostnummerogSted string,
+    Bruksomrade string,
+    Folketall string,
+    Bydel string,
+    Kommunekode string,
+    Kommune string,
+    Fylke string,
+    Latitude string,
+    Longitude string,
+    Datakvalitetsindikator string, 
+    Datakvalitetsforklaring string,
+    Sistoppdatert string,
+    Tom string
+  
+FROM @inputGeo 
+USING Extractors.Text(delimiter:';', skipFirstNRows:1);
+
+
+// Foberedelse av data //
+
+@InAddressJSON = 
+    SELECT 
+    recAddress["Id"] AS KeyViteId,
+    recAddress["StreetName"] AS StreetName,
+    recAddress["Number"] AS Number,
+    recAddress["Letter"] AS Letter,
+    recAddress["CO"] AS Co,
+    recAddress["Description"] AS Description,
+    recAddress["Note"] AS Note,
+    recAddress["GeoLocationId"] AS ViteGeoLocationId, 
+    recAddress["ZipCodeId"] AS ViteZipCodeId,
+    recAddress["CreatedDate"] AS CreatedDate,
+    recAddress["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyAddress;
+
+@InAddress =
+    SELECT 
+    Int32.Parse(KeyViteId) AS AddressId,
+    StreetName,
+    Number,
+    Letter,
+    Co,
+    Description,
+    Note,
+    Int32.Parse(ViteGeoLocationId == null ? "-1" : ViteGeoLocationId) AS ViteGeoLocationId,
+    Int32.Parse(ViteZipCodeId == null ? "-1" : ViteZipCodeId) AS ViteZipCodeId,
+    DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+    DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InAddressJSON;
+
+
+@InZipJSON = 
+    SELECT 
+    recZip["Id"] AS Id,
+    recZip["Zip"] AS Zip,
+    recZip["CityName"] AS CityName,
+    recZip["CountryCode"] AS CountryCode                              
+    FROM @jsonifyZip;
+
+@InZipCode =
+    SELECT 
+    Int32.Parse(Id) AS ViteZipId,
+    Zip.Trim() AS Zip,
+    CityName,
+    CountryCode.Trim() AS CountryCode
+    FROM @InZipJSON;
+
+  //reduser antall kolonner i geolocation tabellen
+  
+@GL2 =
+    SELECT Postnummer,
+           Poststed,
+           Fylke,
+           Kommune,
+           Latitude,
+           Longitude,
+           "NO" AS Landkode
+    FROM @GeoLocation;
+
+ 
+ //join sammen tabeller
+@AddressAndZipCode =
+    SELECT ad.AddressId AS PK_Address, // !!OBS!! Kun i første staging av fullfil. 
+           ad.AddressId AS ViteAddressId,
+           ad.StreetName AS StreetName,
+           ad.Number AS Number,
+           ad.Letter AS Letter,
+           ad.Co AS Co,
+           ad.Description AS Description,
+           ad.Note AS Note,
+           ad.ViteGeoLocationId AS ViteGeoLocationId,
+           zp.Zip AS Zip,
+           zp.CityName AS CityName,
+           zp.CountryCode AS CountryCode,
+           gl.Kommune AS Kommune,
+           gl.Fylke AS Fylke,
+           gl.Latitude AS Latitude,
+           gl.Longitude AS Longitude,
+           ad.CreatedDate AS CreatedDate,
+           ad.UpdatedDate AS UpdatedDate,
+           DateTime.UtcNow.AddHours(2) AS DataLakeDate,
+           "Vite Context DB" AS DataSource,
+           HafslundCommon.Functions.CreateMD5(ad.StreetName + ad.Number + ad.Letter + ad.Co + ad.Description
+           + ad.Note + ad.ViteGeoLocationId + zp.Zip + zp.CityName + zp.CountryCode + gl.Kommune + 
+                                                 gl.Fylke + gl.Latitude + gl.Longitude) AS Checksum
+    
+    FROM @InAddress AS ad
+         JOIN
+             @InZipCode AS zp
+         ON ad.ViteZipCodeId == zp.ViteZipId
+         LEFT OUTER JOIN
+             @GL2 AS gl
+         ON zp.Zip == gl.Postnummer
+            AND zp.CountryCode == gl.Landkode;
+
+//Skriv til fil
+OUTPUT @AddressAndZipCode TO @outTest USING Outputters.Csv(outputHeader: true);

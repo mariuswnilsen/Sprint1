@@ -1,0 +1,4 @@
+﻿CREATE TABLE IF NOT EXISTS Product  (  
+       INDEX [idx_Product] CLUSTERED (HAIPProductId ASC)    
+       PARTITIONED BY HASH (HAIPProductId))   
+       AS SELECT * FROM @Product;

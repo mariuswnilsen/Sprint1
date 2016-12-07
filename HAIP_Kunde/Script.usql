@@ -1,0 +1,478 @@
+﻿// Assembly'ene
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+//  Inputfiler
+DECLARE EXTERNAL @inputCustomer string = "/HafslundStrom/Input/HafslundStromContext/Customer.json";
+DECLARE EXTERNAL @inputCustomerAddress string = "/HafslundStrom/Input/HafslundStromContext/CustomerAddress.json";
+DECLARE EXTERNAL @inputCustomerType string = "/HafslundStrom/Input/HafslundStromContext/CustomerType.json";
+DECLARE EXTERNAL @inputCustomerContact string = "/HafslundStrom/Input/HafslundStromContext/CustomerContact.json";
+DECLARE EXTERNAL @inputCustomerExternal string = "/HafslundStrom/Input/HafslundStromContext/CustomerExternal.json";
+DECLARE EXTERNAL @inputEmployee string = "/HafslundStrom/Input/HafslundStromContext/Employee.json";
+DECLARE EXTERNAL @inputEmail string = "/HafslundStrom/Input/HafslundStromContext/Email.json";
+DECLARE EXTERNAL @inputContact string = "/HafslundStrom/Input/HafslundStromContext/Contact.json";
+DECLARE EXTERNAL @inputContactPhone string = "/HafslundStrom/Input/HafslundStromContext/ContactPhone.json";
+DECLARE EXTERNAL @inputContactType string = "/HafslundStrom/Input/HafslundStromContext/ContactType.json";
+DECLARE EXTERNAL @inputPhone string = "/HafslundStrom/Input/HafslundStromContext/Phone.json";
+DECLARE EXTERNAL @inputPhoneType string = "/HafslundStrom/Input/HafslundStromContext/PhoneType.json";
+
+// Outputfiler
+DECLARE EXTERNAL @outCustomerAndContact string = "/HafslundStrom/Staging/Customer.csv";
+
+// Customer
+@inCustomerFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomer
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomer = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomer
+    FROM @inCustomerFile; 
+
+@inCustomerAddressFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomerAddress
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomerAddress = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomerAddress
+    FROM @inCustomerAddressFile;
+
+@inCustomerTypeFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomerType
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomerType = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomerType
+    FROM @inCustomerTypeFile;
+
+@inCustomerContactFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomerContact
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomerContact = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomerContact
+    FROM @inCustomerContactFile;
+
+@inCustomerExternalFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomerExternal
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomerExternal = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomerExternal
+    FROM @inCustomerExternalFile;
+
+//Employee
+
+@inEmployeeFile= 
+    EXTRACT jsonString string 
+    FROM @inputEmployee
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyEmployee = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recEmployee
+    FROM @inEmployeeFile;
+
+// Email
+@inEmailFile= 
+    EXTRACT jsonString string 
+    FROM @inputEmail
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyEmail = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recEmail
+    FROM @inEmailFile;
+
+// Contact
+
+@inContactFile= 
+    EXTRACT jsonString string 
+    FROM @inputContact
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyContact = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recContact
+    FROM @inContactFile;
+
+@inContactPhoneFile= 
+    EXTRACT jsonString string 
+    FROM @inputContactPhone
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyContactPhone = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recContactPhone
+    FROM @inContactPhoneFile;
+
+@inContactTypeFile= 
+    EXTRACT jsonString string 
+    FROM @inputContactType
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyContactType = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recContactType
+    FROM @inContactTypeFile;
+
+// Phone
+@inPhoneFile= 
+    EXTRACT jsonString string 
+    FROM @inputPhone
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyPhone = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recPhone
+    FROM @inPhoneFile;
+
+@inPhoneTypeFile= 
+    EXTRACT jsonString string 
+    FROM @inputPhoneType
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyPhoneType = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recPhoneType
+    FROM @inPhoneTypeFile;
+
+// nye nytt som skjer del 1
+@InCustomerJSON = 
+    SELECT 
+    recCustomer["Id"] AS Id,
+                recCustomer["ExternalId"] AS ExternalId,
+                recCustomer["CustomerName"] AS CustomerName,
+                recCustomer["OrganisationNumber"] AS OrganisationNumber,
+                recCustomer["CustomerTypeId"] AS CustomerTypeId,
+                recCustomer["EmployeeId"] AS EmployeeId,
+                recCustomer["CreatedDate"] AS CreatedDate,
+                recCustomer["UpdatedDate"] AS UpdatedDate,
+                recCustomer["ParentCustomerId "] AS ParentCustomerId   
+FROM @jsonifyCustomer;
+
+@InCustomerAddressJSON = 
+    SELECT 
+                recCustomerAddress["Id"] AS Id,
+                recCustomerAddress["AddressId"] AS AddressId,
+                recCustomerAddress["CustomerId"] AS CustomerId,
+                recCustomerAddress["SequenceNumber"] AS SequenceNumber,
+                recCustomerAddress["CreatedDate"] AS CreatedDate,
+                recCustomerAddress["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyCustomerAddress;
+
+@InCustomerTypeJSON = 
+    SELECT 
+                recCustomerType["Id"] AS Id,
+                recCustomerType["Type"] AS CustomerType
+FROM @jsonifyCustomerType;
+
+@InCustomerContactJSON = 
+    SELECT 
+                recCustomerContact["Id"] AS Id,
+                recCustomerContact["CustomerId"] AS CustomerId,
+                recCustomerContact["ContactID"] AS ContactId,
+                recCustomerContact["ContactTypeId"] AS ContactTypeId,
+                recCustomerContact["CreatedDate"] AS CreatedDate,
+                recCustomerContact["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyCustomerContact;
+
+@InCustomerExternalJSON = 
+    SELECT
+                recCustomerExternal["Id"] AS Id,
+                recCustomerExternal["ExternalId"] AS ExternalId,
+                recCustomerExternal["CustomerId"] AS CustomerId,
+                recCustomerExternal["CompanyOperatorId"] AS CompanyOperatorId,
+                recCustomerExternal["CreatedDate"] AS CreatedDate,
+                recCustomerExternal["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyCustomerExternal;
+
+@InContactJSON = 
+    SELECT
+                recContact["Id"] AS Id,
+                recContact["Firstname"] AS FirstName,
+                recContact["Lastname"] AS LastName,
+                recContact["Born"] AS Born,
+                recContact["CreatedDate"] AS CreatedDate,
+                recContact["UpdatedDate"] AS UpdatedDate,
+                recContact["EmailId"] AS EmailId,
+                recContact["Contacthash"] AS Contacthash,
+                recContact["BirtNumber"] AS BirthNumber,
+                recContact["GenderID"] AS GenderId
+FROM @jsonifyContact;
+
+@InContactPhoneJSON = 
+    SELECT
+                recContactPhone["Id"] AS Id,
+                recContactPhone["PhoneId"] AS PhoneId,
+                recContactPhone["ContactId"] AS ContactId,
+                recContactPhone["PhoneTypeId"] AS PhoneTypeId,
+                recContactPhone["CreatedDate"] AS CreatedDate,
+                recContactPhone["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyContactPhone;
+
+@InContactTypeJSON = 
+    SELECT
+                recContactType["Id"] AS Id,
+                recContactType["Description"] AS Description,
+                recContactType["CreatedDate"] AS CreatedDate,
+                recContactType["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyContactType;
+
+@InEmployeeJSON = 
+    SELECT
+                recEmployee["Id"] AS Id,
+                recEmployee["ExternalId"] AS ExternalId,
+                recEmployee["FirstName"] AS FirstName,
+                recEmployee["LastName"] AS LastName,
+                recEmployee["EmailId"] AS EmailId,
+                recEmployee["CreatedDate"] AS CreatedDate,
+                recEmployee["UpdatedDate"] AS UpdatedDate,
+                recEmployee["LastLoginDate"] AS LastLoginDate,
+                recEmployee["FirmId"] AS FirmId,
+                recEmployee["PhoneId"] AS PhoneId
+FROM @jsonifyEmployee;
+
+@InEmailJSON = 
+    SELECT
+                recEmail["Id"] AS Id,
+                recEmail["EmailAddress"] AS EmailAddress,
+                recEmail["CreatedDate"] AS CreatedDate,
+                recEmail["UpdatedDate"] AS UpdatedDate,
+                recEmail["LastSendDate"] AS LastSendDate,
+                recEmail["LastReceivedDate"] AS LastReceivedDate, 
+                recEmail["LastWorkedDate"] AS LastWorkedDate,
+                recEmail["LastErrorDate"] AS LastErrorDate
+FROM @jsonifyEmail;
+
+@InPhoneJSON = 
+    SELECT
+                recPhone["Id"] AS Id,
+                recPhone["Number"] AS Number,
+                recPhone["CountryCode"] AS CountryCode,
+                recPhone["LastWorkingDate"] AS LastWorkedDate,
+                recPhone["CreatedDate"] AS CreatedDate,
+                recPhone["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyPhone;
+
+@InPhoneTypeJSON = 
+    SELECT
+                recPhoneType["Id"] AS Id,
+                recPhoneType["Type"] AS PhoneType,
+                recPhoneType["CreatedDate"] AS CreatedDate
+FROM @jsonifyPhoneType;
+
+
+// Noe nytt som skjer del 2
+@InCustomer =
+    SELECT (int) Int32.Parse(Id) AS CustomerIdSource,
+           ExternalId,
+           CustomerName,
+           OrganisationNumber,
+                                  Int32.Parse(CustomerTypeId == null ? "-1" : CustomerTypeId) AS CustomerTypeIdSource,
+                                  Int32.Parse(EmployeeId == null ? "-1" : EmployeeId) AS EmployeeIdSource,
+                                  Int32.Parse(ParentCustomerId == null ? "-1" : ParentCustomerId) AS ParentCustomerIdSource,
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InCustomerJSON;
+
+@InCustomerAddress =
+    SELECT Int32.Parse(Id) AS CustomerAddressIdSource,
+          SequenceNumber,
+                                Int32.Parse(AddressId == null ? "-1" : AddressId) AS AddressIdSource,
+                                 Int32.Parse(CustomerId == null ? "-1" : CustomerId) AS CustomerIdSource,
+          DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+          DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InCustomerAddressJSON;
+
+@InCustomerType =
+    SELECT Int32.Parse(Id) AS CustomerTypeIdSource,
+          CustomerType
+                FROM @InCustomerTypeJSON;
+
+@InCustomerContact =
+    SELECT  Int32.Parse(Id) AS CustomerContactIdSource,
+                                  //Int32.Parse(Id) AS ContactIdSource,
+                                 Int32.Parse(CustomerId == null ? "-1" : CustomerId) AS CustomerIdSource,
+                               Int32.Parse(ContactId == null ? "-1" : ContactId) AS ContactIdSource,
+                                 Int32.Parse(ContactTypeId == null ? "-1" : ContactTypeId) AS ContactTypeIdSource,
+          DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+          DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InCustomerContactJSON;
+
+@InCustomerExternal =
+    SELECT Int32.Parse(Id) AS CustomerExternalIdSource,
+          ExternalId,
+                  Int32.Parse(CustomerId == null ? "-1" : CustomerId) AS CustomerIdSource,
+                                 Int32.Parse(CompanyOperatorId == null ? "-1" : CompanyOperatorId) AS CompanyOperatorIdSource,       
+          DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+          DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InCustomerExternalJSON;
+
+@InContact =
+    SELECT //Int32.Parse(Id) AS ContactIdSource,
+                                (int)       Int32.Parse(Id == null ? "-1" : Id) AS ContactIdSource,
+           FirstName,
+                                  LastName,
+                                  Born,
+                                  Contacthash,
+                                  BirthNumber,
+                                  Int32.Parse(EmailId == null ? "-1" : EmailId) AS EmailIdSource,
+                                  Int32.Parse(GenderId == null ? "-1" : GenderId) AS GenderIdSource,          
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InContactJSON;
+
+@InContactPhone =
+    SELECT Int32.Parse(Id) AS CustomerPhoneIdSource,
+                                  Int32.Parse(PhoneId == null ? "-1" : PhoneId) AS PhoneIdSource,
+                                  Int32.Parse(PhoneTypeId == null ? "-1" : PhoneTypeId) AS PhoneTypeIdSource,
+                                  Int32.Parse(ContactId == null ? "-1" : ContactId) AS ContactIdSource,
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InContactPhoneJSON;
+
+@InContactType =
+    SELECT Int32.Parse(Id) AS ContactTypeIdSource,
+           Description, 
+                                  DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InContactTypeJSON;
+
+
+@InEmployee =
+    SELECT Int32.Parse(Id) AS EmployeeIdSource,
+          ExternalId,
+          FirstName,
+          LastName,
+                                 Int32.Parse(EmailId == null ? "-1" : EmailId) AS EmailIdSource,
+                                 Int32.Parse(FirmId == null ? "-1" : FirmId) AS FirmIdSource,
+                                 Int32.Parse(PhoneId == null ? "-1" : PhoneId) AS PhoneIdSource,
+          DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+          DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate,
+                                 DateTime.Parse(LastLoginDate == null? "2999-12-31 23:59:59" : LastLoginDate) AS LastLoginDate
+                                  //sjekke at den over er korrekt
+                FROM @InEmployeeJSON;
+
+@InEmail =
+    SELECT Int32.Parse(Id) AS EmailIdSource,
+          EmailAddress,
+                                 DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+          DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate,
+                                 //sjekk at de under er korrekt
+                                  DateTime.Parse(LastSendDate ?? "2999-12-31 23:59:59" ) AS LastSendDate,
+                                  // ny enkel måte å skrive på, linja over
+                                  DateTime.Parse(LastReceivedDate == null? "2999-12-31 23:59:59" : LastReceivedDate) AS LastReceivedDate,
+                                  DateTime.Parse(LastWorkedDate == null? "2999-12-31 23:59:59" : LastWorkedDate) AS LastWorkedDate,
+                                  DateTime.Parse(LastErrorDate == null? "2999-12-31 23:59:59" : LastErrorDate) AS LastErrorDate
+                FROM @InEmailJSON;
+
+@InPhone =
+    SELECT Int32.Parse(Id) AS PhoneIdSource,
+          Number,
+          CountryCode,
+                                  DateTime.Parse(LastWorkedDate == null? "2999-12-31 23:59:59" : LastWorkedDate) AS LastWorkedDate,
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+                FROM @InPhoneJSON;
+
+@InPhoneType =
+    SELECT Int32.Parse(Id) AS PhoneTypeIdSource,
+         PhoneType, 
+         DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate
+                FROM @InPhoneTypeJSON;
+
+
+
+//HELT TIL SLUTT: Join sammen tabeller
+@CustomerAndContact =
+    SELECT // cu.CustomerId AS PK_Customer,
+           cu.CustomerIdSource AS CustomerIdSource,
+           cu.ExternalId AS ExternalCustomerId,
+           cu.CustomerName AS CustomerName,
+           cu.OrganisationNumber AS OrganisationNumber,
+           ct.CustomerType AS CustomerType,
+           //cu.EmployeeIdSource AS EmployeeIdSource,
+           cu.CreatedDate AS CreatedDate,
+           cu.UpdatedDate AS UpdatedDate,
+           cu.ParentCustomerIdSource AS ParentCustomerIdSource,
+           ca.AddressIdSource AS AddressIdSource,
+           ca.SequenceNumber AS AddressSequenceNumber,
+           cc.ContactIdSource AS ContactIdSource,
+           ce.CompanyOperatorIdSource AS CompanyOperatorIdSource,
+           ce.ExternalId AS ExternalContactId,
+           co.FirstName AS FirstName,
+           co.LastName AS LastName,
+           co.Born AS Born,
+           co.Contacthash AS Contacthash,
+           co.BirthNumber AS BirthNumber,
+           cot.Description AS ContactType,
+           // tomt i vite  emp.LastLoginDate AS LastLoginDate,
+           // tomt i vite  emp.FirmId AS FirmIdSource,
+           em.EmailAddress AS EmailAddress,
+           em.LastSendDate AS LastSendDate,
+           em.LastReceivedDate AS LastReceivedDate,
+           em.LastWorkedDate AS LastWorkedDate,
+           em.LastErrorDate AS LastErrorDate,
+           ph.Number AS PhoneNumber,
+           ph.CountryCode AS PhoneCountryCode,
+           pt.PhoneType AS PhoneType,
+           // Gender er ikke med, tomt i Vite
+           DateTime.UtcNow.AddHours(2) AS DataLakeCreatedDate,
+           DateTime.UtcNow.AddHours(2) AS DataLakeUpdatedDate,
+           "Vite Context DB" AS DataSource,
+
+           HafslundCommon.Functions.CreateMD5(cu.CustomerName + cu.OrganisationNumber + ct.CustomerType + ca.SequenceNumber +
+           co.FirstName + co.LastName + co.Born + co.Contacthash + co.BirthNumber +
+           cot.Description + em.EmailAddress + ph.Number + ph.CountryCode + pt.PhoneType) AS Checksum
+
+
+    FROM @InCustomer AS cu
+         LEFT INNER JOIN
+             @InCustomerAddress AS ca
+         ON cu.CustomerIdSource == ca.CustomerIdSource
+
+        LEFT INNER JOIN
+             @InCustomerType AS ct // ligger lenger ned
+         ON cu.CustomerTypeIdSource == ct.CustomerTypeIdSource
+
+         LEFT INNER JOIN
+             @InCustomerContact AS cc
+         ON cu.CustomerIdSource == cc.CustomerIdSource
+
+        LEFT INNER JOIN
+             @InCustomerExternal AS ce
+         ON cu.CustomerIdSource == ce.CustomerIdSource
+
+        LEFT INNER JOIN
+             @InContact AS co
+                                               
+         ON cc.ContactIdSource == co.ContactIdSource
+
+        LEFT INNER JOIN
+             @InContactPhone AS cp
+         ON co.ContactIdSource == cp.ContactIdSource
+
+        LEFT INNER JOIN
+             @InContactType AS cot // lik lenger opp
+         ON cc.ContactTypeIdSource == cot.ContactTypeIdSource
+/*
+        LEFT OUTER JOIN
+             @InEmployee AS emp
+         ON cu.EmployeeIdSource == emp.EmployeeIdSource
+*/
+        LEFT OUTER JOIN
+             @InEmail AS em
+         ON co.EmailIdSource == em.EmailIdSource
+         
+        
+
+       LEFT OUTER  JOIN
+             @InPhone AS ph
+         ON cp.PhoneIdSource == ph.PhoneIdSource
+
+        LEFT OUTER JOIN
+             @InPhoneType AS pt
+         ON cp.PhoneTypeIdSource == pt.PhoneTypeIdSource;
+
+//Skriv til fil, siste del i STAGGING
+OUTPUT @CustomerAndContact TO @outCustomerAndContact USING Outputters.Csv(outputHeader: true);
+

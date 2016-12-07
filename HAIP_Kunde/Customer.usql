@@ -1,0 +1,202 @@
+﻿// Assembly'ene
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+//  Inputfiler
+DECLARE EXTERNAL @inputCustomer string = "/HafslundStrom/Input/HafslundStromContext/Customer.json";
+DECLARE EXTERNAL @inputCustomerContact string = "/HafslundStrom/Input/HafslundStromContext/CustomerContact.json";
+DECLARE EXTERNAL @inputContact string = "/HafslundStrom/Input/HafslundStromContext/Contact.json";
+
+
+// Outputfiler
+DECLARE EXTERNAL @outCustomerAndContact string = "/HafslundStrom/Staging/Customer.csv";
+
+// Customer
+@inCustomerFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomer
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomer = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomer
+    FROM @inCustomerFile; 
+
+
+@inCustomerContactFile= 
+    EXTRACT jsonString string 
+    FROM @inputCustomerContact
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyCustomerContact = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recCustomerContact
+    FROM @inCustomerContactFile;
+
+
+
+
+
+// Contact
+
+@inContactFile= 
+    EXTRACT jsonString string 
+    FROM @inputContact
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyContact = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recContact
+    FROM @inContactFile;
+
+
+// nye nytt som skjer del 1
+@InCustomerJSON = 
+    SELECT 
+    recCustomer["Id"] AS Id,
+                recCustomer["ExternalId"] AS ExternalId,
+                recCustomer["CustomerName"] AS CustomerName,
+                recCustomer["OrganisationNumber"] AS OrganisationNumber,
+                recCustomer["CustomerTypeId"] AS CustomerTypeId,
+                recCustomer["EmployeeId"] AS EmployeeId,
+                recCustomer["CreatedDate"] AS CreatedDate,
+                recCustomer["UpdatedDate"] AS UpdatedDate,
+                recCustomer["ParentCustomerId "] AS ParentCustomerId   
+FROM @jsonifyCustomer;
+
+
+@InCustomerContactJSON = 
+    SELECT 
+                recCustomerContact["Id"] AS Id,
+                recCustomerContact["CustomerId"] AS CustomerId,
+                recCustomerContact["ContactID"] AS ContactId,
+                recCustomerContact["ContactTypeId"] AS ContactTypeId,
+                recCustomerContact["CreatedDate"] AS CreatedDate,
+                recCustomerContact["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyCustomerContact;
+
+
+@InContactJSON = 
+    SELECT
+                recContact["Id"] AS Id,
+                recContact["Firstname"] AS FirstName,
+                recContact["Lastname"] AS LastName,
+                recContact["Born"] AS Born,
+                recContact["CreatedDate"] AS CreatedDate,
+                recContact["UpdatedDate"] AS UpdatedDate,
+                recContact["EmailId"] AS EmailId,
+                recContact["Contacthash"] AS Contacthash,
+                recContact["BirtNumber"] AS BirthNumber,
+                recContact["GenderID"] AS GenderId
+FROM @jsonifyContact;
+
+
+@InCustomer =
+    SELECT Int32.Parse(Id) AS CustomerIdSource,
+           ExternalId,
+           CustomerName,
+           OrganisationNumber,
+           Int32.Parse(CustomerTypeId == null? "-1" : CustomerTypeId) AS CustomerTypeIdSource,
+           Int32.Parse(EmployeeId == null? "-1" : EmployeeId) AS EmployeeIdSource,
+           Int32.Parse(ParentCustomerId == null? "-1" : ParentCustomerId) AS ParentCustomerIdSource,
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InCustomerJSON
+    UNION
+    SELECT (int) - 1 AS CustomerIdSource,
+           "-1" AS ExternalId,
+           "-1" AS CustomerName,
+           "-1" AS OrganisationNumber,
+           (int) - 1 AS CustomerTypeIdSource,
+           (int) - 1 AS EmployeeIdSource,
+           (int) - 1 AS ParentCustomerIdSource,
+           DateTime.Parse("1800-01-01 00:00:00") AS CreatedDate,
+           DateTime.Parse("2999-12-31 23:59:59") AS UpdatedDate
+    FROM @InCustomerJSON;
+
+
+
+@InCustomerContact =
+    SELECT Int32.Parse(Id) AS CustomerContactIdSource,
+           Int32.Parse(CustomerId == null? "-1" : CustomerId) AS CustomerIdSource,
+           Int32.Parse(ContactId == null? "-1" : ContactId) AS ContactIdSource,
+           Int32.Parse(ContactTypeId == null? "-1" : ContactTypeId) AS ContactTypeIdSource,
+           DateTime.Parse(CreatedDate == null? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+           DateTime.Parse(UpdatedDate == null? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InCustomerContactJSON
+    UNION
+    SELECT (int) -1 AS CustomerContactIdSource,
+           (int) -1 AS CustomerIdSource,
+           (int) -1 AS ContactIdSource,
+           (int) -1 AS ContactTypeIdSource,
+           DateTime.Parse("1800-01-01 00:00:00") AS CreatedDate,
+           DateTime.Parse("2999-12-31 23:59:59") AS UpdatedDate
+    FROM @InCustomerContactJSON;
+
+
+@InContact =
+    SELECT Int32.Parse(Id) AS ContactIdSource,
+           FirstName,
+           LastName,
+           Born,
+           Contacthash,
+           BirthNumber,
+           Int32.Parse(EmailId ?? "-1") AS EmailIdSource,
+           Int32.Parse(GenderId?? GenderId) AS GenderIdSource,
+           DateTime.Parse(CreatedDate?? "1800-01-01 00:00:00") AS CreatedDate,
+           DateTime.Parse(UpdatedDate?? "2999-12-31 23:59:59") AS UpdatedDate
+    FROM @InContactJSON
+    UNION
+    SELECT (int) - 1 AS ContactIdSource,
+           "-1" AS FirstName,
+           "-1" AS LastName,
+           "-1" AS Born,
+           "-1" AS Contacthash,
+           "-1" AS BirthNumber,
+           (int) - 1 AS EmailIdSource,
+           (int) - 1 AS GenderIdSource,
+           DateTime.Parse("1800-01-01 00:00:00") AS CreatedDate,
+           DateTime.Parse("2999-12-31 23:59:59") AS UpdatedDate
+    FROM @InContactJSON;
+
+
+
+//Join sammen tabeller
+@CuCc =
+    SELECT ROW_NUMBER() OVER() AS HAIPCustomerId,
+           cu.CustomerIdSource AS CustomerIdSource,
+           cu.CustomerName AS CustomerName,
+           cu.OrganisationNumber AS OrganisationNumber,
+           cu.ParentCustomerIdSource AS ParentCustomerIdSource,
+           cc.ContactIdSource AS ContactIdSource,
+           DateTime.UtcNow.AddHours(2) AS DataLakeCreatedDate,
+           DateTime.UtcNow.AddHours(2) AS DataLakeUpdatedDate,
+           "Vite Context DB" AS DataSource
+
+    FROM @InCustomer AS cu
+         LEFT JOIN
+             @InCustomerContact AS cc
+         ON cu.CustomerIdSource == cc.CustomerIdSource;
+@CuCcCo =
+    SELECT (int) cucc.HAIPCustomerId AS HAIPCustomerId,
+           (int) cucc.CustomerIdSource  AS CustomerIdSource,
+           cucc.CustomerName AS CustomerName,
+           cucc.OrganisationNumber AS OrganisationNumber,
+           co.FirstName AS FirstName,
+           co.LastName AS LastName,
+           (int) cucc.ParentCustomerIdSource  AS ParentCustomerIdSource,
+           (int) (cucc.ContactIdSource ?? -1 ) AS ContactIdSource,
+           cucc.DataLakeCreatedDate AS DataLakeCreatedDate,
+           cucc.DataLakeUpdatedDate AS DataLakeUpdatedDate,
+           cucc.DataSource AS DataSource
+           
+           FROM @CuCc AS cucc
+         LEFT JOIN
+             @InContact AS co
+         ON cucc.ContactIdSource == co.ContactIdSource;
+
+@CustomerAndContact =
+SELECT * FROM @CuCcCo;
+
+        
+//Skriv til fil, siste del i STAGGING
+OUTPUT @CustomerAndContact TO @outCustomerAndContact USING Outputters.Csv(outputHeader: true);
+

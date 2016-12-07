@@ -1,0 +1,162 @@
+﻿// Historisering av data. 
+
+
+//Hent de radene som finnes i tabell
+@EksisterendeRader =
+    SELECT *
+    FROM @AddressAndZipCode; // WHERE Niva == "Gatenummer";
+  // må opprette Address-tabell. Skip tabell, bruk fil. 
+  
+  //Behold bare de radene som ikke finnes i nytt datasett
+@UendredeRader =
+    SELECT a.PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @EksisterendeRader AS a
+         LEFT ANTISEMIJOIN
+             @AddressAndZipCode AS AddressAndZipCode
+         ON a.AddressId == AddressAndZipCode.AddressId
+         ;
+  
+ //for rader som finnes fra før
+@EndredeRader =
+    SELECT 
+           a.PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           //hvis checksum er lik beholdes DataLakeUpdatedDate fra eksisterende rad
+           a.Checksum == AddressAndZipCode.Checksum? a.DataLakeUpdatedDate : AddressAndZipCode.DataLakeDate AS DataLakeUpdatedDate,
+           AddressAndZipCode.Checksum
+    FROM @EksisterendeRader AS a
+         JOIN
+             @AddressAndZipCode AS az //AddressAndZip
+         ON a.AddressId == az.AddressId
+         ; 
+
+//nye rader
+@NyeRader =
+    SELECT ROW_NUMBER() OVER() AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeDate AS DataLakeCreatedDate,
+           a.DataLakeDate AS DataLakeUpdatedDate,
+           a.Checksum,
+           1 AS Join
+    FROM @AddressAndZipCode AS a
+         LEFT ANTISEMIJOIN
+             @EksisterendeRader AS b
+         ON a.AddressId == b.AddressId
+         ;
+  
+  @MaxNokkel =
+    SELECT 1 AS Join,
+           MAX(PK_Address) AS MaxNokkel
+    FROM Address;
+  
+@NyeRader2 =
+    SELECT PK_Address + (MaxNokkel == null ? 0 : MaxNokkel) AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @NyeRader AS a
+         JOIN
+             @MaxNokkel AS m
+         ON a.Join == m.Join;
+
+//sett sammen for å lage nytt datasett
+@Nyttdatasett =
+    SELECT *
+    FROM @NyeRader2
+    UNION ALL
+    SELECT *
+    FROM @UendredeRader
+    UNION ALL
+    SELECT *
+    FROM @EndredeRader;
+
+
+          
+//tøm tabell
+TRUNCATE TABLE HafslundStromBI.dbo.Address;
+
+
+
+//last tabell på nytt
+INSERT INTO HafslundStromBI.dbo.Address
+SELECT *
+FROM @AdressUnion;
+//skriv data til fil
+OUTPUT @AdressUnion 
+    TO @outTest
+    USING Outputters.Csv();
+

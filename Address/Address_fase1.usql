@@ -1,0 +1,494 @@
+﻿
+// /HafslundStrom/Input/HafslundStromContext/Address.json
+
+﻿USE DATABASE HafslundStromBI;
+
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+
+TRUNCATE TABLE Address;
+
+//les inn address fil
+@inAddressFile= 
+    EXTRACT jsonString string 
+    FROM @"InputHafslundStromContextDB/Address.json" 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyAddress = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recAddress 
+    FROM @inAddressFile;
+
+@InAddressJSON = 
+    SELECT 
+    recAddress["Id"] AS Id,
+    recAddress["StreetName"] AS StreetName,
+    recAddress["Number"] AS Number,
+    recAddress["Letter"] AS Letter,
+    recAddress["CO"] AS Co,
+    recAddress["Description"] AS Description,
+    recAddress["Note"] AS Note,
+    recAddress["GeoLocationId"] AS GeoLocationId,
+    recAddress["ZipCodeId"] AS ZipCodeId,
+    recAddress["UpdatedDate"] AS UpdatedDate,
+    recAddress["CreatedDate"] AS CreatedDate                               
+FROM @jsonifyAddress;
+
+@InAddress =
+    SELECT 
+    Int32.Parse(Id) AS AddressId,
+    StreetName,
+    Number,
+    Letter,
+    Co,
+    Description,
+    Note,
+    GeoLocationId,
+    Int32.Parse(ZipCodeId == null ? "-1" : ZipCodeId) AS ZipCodeId,
+    DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+    DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InAddressJSON;
+
+       
+//les inn ZipCode fil
+@inZipFile= 
+    EXTRACT jsonString string 
+    FROM @"InputHafslundStromContextDB/ZipCode.json" 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyZip = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recZip 
+    FROM @inZipFile;
+
+@InZipJSON = 
+    SELECT 
+    recZip["Id"] AS Id,
+    recZip["Zip"] AS Zip,
+    recZip["CityName"] AS CityName,
+    recZip["CountryCode"] AS CountryCode                              
+    FROM @jsonifyZip;
+
+@InZipCode =
+    SELECT 
+    Int32.Parse(Id) AS ZipId,
+    Zip.Trim() AS Zip,
+    CityName,
+    CountryCode.Trim() AS CountryCode
+    FROM @InZipJSON;
+
+//les inn fil med koordinater
+@GeoLocation = EXTRACT
+    Postnummer string,
+    Poststed string,
+    PostnummerogSted string,
+    Bruksomrade string,
+    Folketall string,
+    Bydel string,
+    Kommunekode string,
+    Kommune string,
+    Fylke string,
+    Latitude string,
+    Longitude string,
+    Datakvalitetsindikator string, 
+    Datakvalitetsforklaring string,
+    Sistoppdatert string,
+    Tom string
+
+    
+FROM "ReferenceData/Input/Postnummer.csv" 
+USING Extractors.Text(delimiter:';', skipFirstNRows:1);
+
+//reduser antall kolonner
+@GL2 =
+    SELECT Postnummer,
+           Poststed,
+           Fylke,
+           Kommune,
+           Latitude,
+           Longitude,
+           "NO" AS Landkode
+    FROM @GeoLocation;
+
+
+
+//join sammen tabeller
+@AdressAndZip =
+    SELECT ad.AddressId AS AddressId,
+           ad.StreetName AS StreetName,
+           ad.Number AS Number,
+           ad.Letter AS Letter,
+           ad.Co AS Co,
+           ad.Description AS Description,
+           ad.Note AS Note,
+           ad.GeoLocationId AS GeoLocationId,
+           zp.Zip AS Zip,
+           zp.CityName AS CityName,
+           zp.CountryCode AS CountryCode,
+           gl.Kommune AS Kommune,
+           gl.Fylke AS Fylke,
+           gl.Latitude AS Latitude,
+           gl.Longitude AS Longitude,
+           "Gatenummer" AS Niva,
+           ad.CreatedDate AS CreatedDate,
+           ad.UpdatedDate AS UpdatedDate,
+           DateTime.UtcNow.AddHours(2) AS DataLakeDate,
+           HafslundStromBI.Functions.CreateHash(ad.StreetName + ad.Number + ad.Letter + ad.Co + ad.Description
+           + ad.Note + ad.GeoLocationId + zp.Zip + zp.CityName + zp.CountryCode + gl.Kommune + gl.Fylke + gl.Latitude + gl.Longitude) AS Checksum
+    FROM @InAddress AS ad
+         JOIN
+             @InZipCode AS zp
+         ON ad.ZipCodeId == zp.ZipId
+         LEFT OUTER JOIN
+             @GL2 AS gl
+         ON zp.Zip == gl.Postnummer
+            AND zp.CountryCode == gl.Landkode;
+
+//Hent de radene som finnes i tabell
+@EksisterendeRader =
+    SELECT *
+    FROM HafslundStromBI.dbo.Address WHERE Niva == "Gatenummer";
+
+//Behold bare de radene som ikke finnes i nytt datasett
+@UendredeRader =
+    SELECT a.PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @EksisterendeRader AS a
+         LEFT ANTISEMIJOIN
+             @AdressAndZip AS AdressAndZip
+         ON a.AddressId == AdressAndZip.AddressId
+         ;
+
+//for rader som finnes fra før
+@EndredeRader =
+    SELECT 
+           a.PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           //hvis checksum er lik beholdes DataLakeUpdatedDate fra eksisterende rad
+           a.Checksum == AdressAndZip.Checksum? a.DataLakeUpdatedDate : AdressAndZip.DataLakeDate AS DataLakeUpdatedDate,
+           AdressAndZip.Checksum
+    FROM @EksisterendeRader AS a
+         JOIN
+             @AdressAndZip AS AdressAndZip
+         ON a.AddressId == AdressAndZip.AddressId
+         ;
+
+//nye rader
+@NyeRader =
+    SELECT ROW_NUMBER() OVER() AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeDate AS DataLakeCreatedDate,
+           a.DataLakeDate AS DataLakeUpdatedDate,
+           a.Checksum,
+           1 AS Join
+    FROM @AdressAndZip AS a
+         LEFT ANTISEMIJOIN
+             @EksisterendeRader AS b
+         ON a.AddressId == b.AddressId
+         ;
+
+//Hent høyeste nøkkelverdi
+@MaxNokkel =
+    SELECT 1 AS Join,
+           MAX(PK_Address) AS MaxNokkel
+    FROM HafslundStromBI.dbo.Address;
+
+@NyeRader2 =
+    SELECT PK_Address + (MaxNokkel == null ? 0 : MaxNokkel) AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @NyeRader AS a
+         JOIN
+             @MaxNokkel AS m
+         ON a.Join == m.Join;
+      
+
+//sett sammen for å lage nytt datasett
+@Nyttdatasett =
+    SELECT *
+    FROM @NyeRader2
+    UNION ALL
+    SELECT *
+    FROM @UendredeRader
+    UNION ALL
+    SELECT *
+    FROM @EndredeRader;
+
+    //lag aggregat på Postnummer-nivå for adresse
+@AddressAgg =
+    SELECT DISTINCT - 2 AS AddressId,
+                    "N/A" AS StreetName,
+                    "N/A" AS Number,
+                    "N/A" AS Letter,
+                    "N/A" AS Co,
+                    "N/A" AS Description,
+                    "N/A" AS Note,
+                    "N/A" AS GeoLocationId,
+                    Zip,
+                    CityName,
+                    CountryCode,
+                    Kommune,
+                    Fylke,
+                    Latitude,
+                    Longitude,
+                    "Postnummer" AS Niva,
+                    DateTime.UtcNow.AddHours(2) AS CreatedDate,
+                    DateTime.Parse("2999-12-31") AS UpdatedDate,
+                    DateTime.UtcNow.AddHours(2) AS DataLakeDate,
+                    HafslundStromBI.Functions.CreateHash(Zip + CityName + CountryCode + Kommune + Fylke + Latitude + Longitude + Niva) AS Checksum
+    FROM @Nyttdatasett;
+
+    @EksisterendeRaderAgg =
+    SELECT *
+    FROM HafslundStromBI.dbo.Address WHERE Niva == "Postnummer";
+
+@NyeRaderAgg =
+    SELECT ROW_NUMBER() OVER() AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeDate AS DataLakeCreatedDate,
+           a.DataLakeDate AS DataLakeUpdatedDate,
+           a.Checksum,
+           1 AS Join
+    FROM @AddressAgg AS a
+         LEFT ANTISEMIJOIN
+             @EksisterendeRaderAgg AS b
+         ON a.Zip == b.Zip AND a.CountryCode == b.CountryCode;
+
+//Hent lavesete nøkkelverdi
+@MinNokkel =
+    SELECT 1 AS Join,
+           MIN(PK_Address) AS MinNokkel
+    FROM HafslundStromBI.dbo.Address;
+
+@NyeRaderAgg2 =
+    SELECT PK_Address + (MinNokkel == null ? 0 : MinNokkel) AS PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @NyeRaderAgg AS a
+         JOIN
+             @MinNokkel AS b
+         ON a.Join == b.Join;
+
+
+
+@uendredeRaderAgg =  SELECT *
+    FROM @EksisterendeRaderAgg AS a
+         LEFT ANTISEMIJOIN
+             @AddressAgg AS b
+         ON a.Zip == b.Zip AND a.CountryCode == b.CountryCode;
+
+@endredeRaderAgg =
+    SELECT a.PK_Address,
+           a.AddressId,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationId,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.Niva,
+           a.CreatedDate,
+           a.UpdatedDate,
+           a.DataLakeCreatedDate,
+           //hvis checksum er lik beholdes DataLakeUpdatedDate fra eksisterende rad
+           a.Checksum == b.Checksum? a.DataLakeUpdatedDate : b.DataLakeDate AS DataLakeUpdatedDate,
+           b.Checksum
+    FROM @EksisterendeRaderAgg AS a
+         JOIN
+             @AddressAgg AS b
+         ON a.Zip == b.Zip AND a.CountryCode == b.CountryCode;
+
+         
+
+@AdressUnion =
+    SELECT *
+    FROM @NyeRaderAgg2
+    UNION ALL
+    SELECT *
+    FROM @uendredeRaderAgg
+    UNION ALL
+    SELECT *
+    FROM @endredeRaderAgg
+    UNION ALL
+    SELECT *
+    FROM @Nyttdatasett;
+
+          
+//tøm tabell
+TRUNCATE TABLE HafslundStromBI.dbo.Address;
+
+//last tabell på nytt
+INSERT INTO HafslundStromBI.dbo.Address
+SELECT *
+FROM @AdressUnion;
+
+
+//skriv data til fil
+OUTPUT @AdressUnion 
+    TO "/HafslundStromBI/ExportTilAzureSQLDW/Adresse.csv"  
+    USING Outputters.Csv();
+
+
+//lag tekstrad
+@AddressString =
+    SELECT 
+            Convert.ToString(PK_Address) AS PK_Address,
+           Convert.ToString(AddressId) AS AddressId,
+           StreetName,
+           Number,
+           Letter,
+           Co,
+           Description,
+           Note,
+           GeoLocationId,
+           Zip,
+           CityName,
+           CountryCode,
+           Kommune,
+           Fylke,
+           Latitude,
+           Longitude,
+           Niva,
+           CreatedDate.ToString("dd.MM.yyyy HH:mm") AS CreatedDate,
+           UpdatedDate.ToString("dd.MM.yyyy HH:mm") AS UpdatedDate,
+           DataLakeCreatedDate.ToString("dd.MM.yyyy HH:mm") AS DataLakeCreatedDate,
+           DataLakeUpdatedDate.ToString("dd.MM.yyyy HH:mm") AS DataLakeUpdatedDate,
+           Checksum
+    FROM @AdressUnion;
+
+
+//lag headerrad. kombiner med data formatert som string
+@header = SELECT * FROM (VALUES (1, "PK_Adresse", "AddressId", "Gatenavn", "Nummer", "Bokstav","Co", "Beskrivelse", "Notat", "GeoLocationId", "Postkode",
+"Poststed", "Landkode", "Kommune", "Fylke", "Breddegrad", "Lengdegrad", "Nivå", "Opprettet dato", "Oppdatert dato", "Data Lake opprettet dato", "Data Lake oppdatert dato", "Sjekksum")) 
+AS H(headerline, PK_Address, AddressId, StreetName, Number, Letter, Co, Description, Note, GeoLocationId,Zip,
+           CityName, CountryCode, Kommune, Fylke, Latitude, Longitude, Niva, CreatedDate, UpdatedDate, DataLakeCreatedDate, DataLakeUpdatedDate, Checksum) 
+UNION ALL 
+SELECT 0 AS headerline, PK_Address, AddressId, StreetName, Number, Letter, Co, Description, Note, GeoLocationId,Zip,
+           CityName, CountryCode, Kommune, Fylke, Latitude, Longitude, Niva, CreatedDate, UpdatedDate, DataLakeCreatedDate, DataLakeUpdatedDate, Checksum
+  FROM @AddressString;
+
+
+  //output data
+OUTPUT @header TO @"/HafslundStromBI/Adresse.csv" ORDER BY headerline DESC USING Outputters.Csv();
+
+
+
+
+
+

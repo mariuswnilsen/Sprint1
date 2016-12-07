@@ -1,0 +1,129 @@
+﻿
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+/*
+{"Id":1,"ExternalId":1359,"Title":"Variabelpris","Code":"UTGÅTT HS PRIV Variabel akonto","Status":null,"StartDate":null,"EndDate":null,"ProductSubType":"","ProductTypeId":1,"CreatedDate":"2016-11-23 15:30:51.0000000","UpdateDate":"2016-11-28 08:13:05.5100000"}
+
+{"Id":1,"Type":"Hovedprodukt"}
+
+*/
+
+//Input
+DECLARE EXTERNAL @inputProduct string = "/HafslundStrom/Input/HafslundStromContext/Product.json";
+DECLARE EXTERNAL @inputProductType string = "/HafslundStrom/Input/HafslundStromContext/ProductType.json";
+
+
+//Output
+DECLARE EXTERNAL @outProduct string = "/HafslundStrom/Staging/Product.csv";
+
+
+// Extract + jsonify // 
+
+// Product
+@inProductFile = 
+    EXTRACT jsonString string 
+    FROM @inputProduct
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyProduct = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recProduct
+    FROM @inProductFile; 
+
+// ProductType
+
+@inProductTypeFile = 
+    EXTRACT jsonString string 
+    FROM @inputProductType
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyProductType = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recProductType
+    FROM @inProductTypeFile; 
+
+// Foberedelse av data //
+
+//Product 
+
+@InProductJSON = 
+    SELECT 
+        recProduct["Id"] AS KeyViteId,
+        recProduct["ExternalId"] AS ExternalId,
+        recProduct["Title"] AS Title,
+        recProduct["Code"] AS Code,
+        recProduct["Status"] AS Status,
+        recProduct["StartDate"] AS StartDate,
+        recProduct["EndDate"] AS EndDate,
+        recProduct["ProductSubType"] AS ProductSubType,
+        recProduct["ProductTypeId"] AS ProductTypeId,
+        recProduct["CreatedDate"] AS CreatedDate,
+        recProduct["UpdateDate"] AS UpdateDate        
+    FROM @jsonifyProduct;
+
+@InProduct = 
+    SELECT
+        Int32.Parse(KeyViteId) AS ProductIdSource,
+        ExternalId AS ExternalId,
+        Title AS	Title,
+        Code AS	Code,
+        Status	AS Status,
+        DateTime.Parse(StartDate == null ? "1800-01-01 00:00:00" : StartDate) AS StartDate,
+        DateTime.Parse(EndDate == null ? "2999-12-31 23:59:59" : EndDate) AS EndDate,
+        ProductSubType AS	ProductSubType,
+        ProductTypeId AS	ProductTypeIdSource,
+        DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDateSource,
+        DateTime.Parse(UpdateDate == null ? "2999-12-31 23:59:59" : UpdateDate) AS UpdateDateSource
+        FROM @InProductJSON;
+
+//ProductType
+
+@InProductTypeJSON = 
+    SELECT
+        recProductType["Id"] AS KeyViteId,
+        recProductType["Type"] AS ProductType
+    FROM @jsonifyProductType;
+
+@InProductType = 
+    SELECT
+        KeyViteId AS ProductTypeIdSource,
+        ProductType AS ProductType
+    FROM @InProductTypeJSON;
+
+
+
+  // Join sammen tabeller //
+  
+  @Product = 
+      SELECT
+          ROW_NUMBER() OVER() AS HAIPProductId,
+          p.ProductIdSource AS ProductIdSource,  
+          p.ExternalId AS ExternalId, 
+          p.Title AS Title,
+          p.Code AS Code,
+          pt.ProductType AS ProductType,
+          p.Status AS Status, 
+          p.StartDate AS StartDate,
+          p.EndDate AS EndDate,
+          p.ProductSubType AS ProductSubType,
+          p.ProductTypeIdSource AS ProductTypeIdSource,
+          p.CreatedDateSource AS CreatedDateSource,
+          p.UpdateDateSource AS UpdateDateSource,
+          DateTime.UtcNow.AddHours(2) AS DataLakeCreatedDate,
+          DateTime.UtcNow.AddHours(2) AS DataLakeUpdatedDate,
+          "Vite Context DB" AS DataSource,
+          HafslundCommon.Functions.CreateMD5(p.ProductIdSource+p.ExternalId +p.Title+p.Code+pt.ProductType+p.Status+p.StartDate+p.EndDate+p.ProductSubType+
+          p.ProductTypeIdSource+p.CreatedDateSource+p.UpdateDateSource) AS Checksum  
+      
+      FROM
+      @InProduct AS p JOIN @InProductType AS pt ON p.ProductTypeIdSource == pt.ProductTypeIdSource;
+
+      
+      
+        
+CREATE TABLE IF NOT EXISTS Product  (  
+       INDEX [idx_Product] CLUSTERED (HAIPProductId ASC)    
+       PARTITIONED BY HASH (HAIPProductId))   
+       AS SELECT * FROM @Product;
+
+//Skriv til fil
+OUTPUT @Product TO @outProduct USING Outputters.Csv(outputHeader: true);
+

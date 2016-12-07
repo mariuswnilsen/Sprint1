@@ -1,0 +1,290 @@
+﻿USE DATABASE HafslundStromBI;
+
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+
+//Les inn målepunktfil
+
+/* Eksempeldata:
+{"Id":1,"MeterpointId":"707057500051843381","AddressId":241343,
+"NetOwnerId":8,"MeterId":1,
+"MeterpointStartDate":"2011-11-10 00:00:00.0000000",
+"CreatedDate":"2016-08-01 16:49:58.0000000","UpdatedDate":null}
+*/
+@inMeterpointFile = 
+    EXTRACT jsonString string 
+    FROM @"InputHafslundStromContextDB/Meterpoint.json"
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonifyMeterpoint = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recMeterpoint 
+    FROM @inMeterpointFile;
+    
+@InMeterpointJSON = 
+    SELECT 
+    recMeterpoint["Id"] AS Id,
+    recMeterpoint["MeterpointId"] AS MeterpointId,
+    recMeterpoint["AddressId"] AS AddressId,
+    recMeterpoint["NetOwnerId"] AS NetOwnerId,
+    recMeterpoint["MeterId"] AS MeterId,
+    recMeterpoint["MeterPointStartDate"] AS MeterPointStartDate,
+    recMeterpoint["CreatedDate"] AS CreatedDate,
+    recMeterpoint["UpdatedDate"] AS UpdatedDate
+    FROM @jsonifyMeterpoint;
+
+@InMeterpoint =
+    SELECT 
+    Int32.Parse(Id) AS Id,
+    MeterpointId,
+    Int32.Parse(AddressId == null ? "-1" : AddressId) AS AddressId,
+    Int32.Parse(NetOwnerId) AS NetOwnerId,
+    Int32.Parse(MeterId) AS MeterId, 
+    DateTime.Parse(MeterPointStartDate == null ? "1800-01-01 00:00:00" : MeterPointStartDate) AS MeterPointStartDate,
+    DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+    DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InMeterpointJSON;
+
+//les inn NetOwnerfil.
+@inNetOwnerFile = 
+    EXTRACT jsonString string 
+    FROM @"InputHafslundStromContextDB/NetOwner.json" 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+
+@jsonify = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS rec 
+    FROM @inNetOwnerFile;
+
+@InNetownerJSON = 
+    SELECT 
+    rec["Id"] AS NetOwnerId,
+    rec["Code"] AS Code,
+    rec["GLN"] AS Gln,
+    rec["UpdatedDate"] AS UpdatedDate,
+    rec["CreatedDate"] AS CreatedDate                               
+    FROM @jsonify;
+
+@InNetowner =
+    SELECT 
+    Int32.Parse(NetOwnerId) AS NetOwnerId,
+    Code,
+    Gln,
+    UpdatedDate,
+    CreatedDate
+    FROM @InNetownerJSON;
+
+//les inn address tabell
+
+@InAddress =
+    SELECT *
+    FROM HafslundStromBI.dbo.Address;
+
+
+//sett sammen ny tabell
+@Meterpoint =
+    SELECT 
+           mp.Id AS Id,
+           MeterpointId,
+           mp.AddressId AS AddressId,
+           mp.CreatedDate AS MeterPointCreatedDate,
+           mp.UpdatedDate AS MeterPointUpdatedDate,
+           MeterPointStartDate,
+           Gln AS NetOwner,
+           StreetName,
+           Number,
+           Letter,
+           Zip,
+           CityName,
+           CountryCode,
+           "HafslundStromContext" AS Source,
+           DateTime.UtcNow.AddHours(2) AS DataLakeDate,
+           HafslundStromBI.Functions.CreateHash(Convert.ToString(mp.Id) + MeterpointId + mp.AddressId + Gln + StreetName + Number + Letter + Zip + CityName + CountryCode) AS Checksum
+    FROM @InMeterpoint AS mp
+         LEFT OUTER JOIN
+             @InNetowner AS no
+         ON mp.NetOwnerId == no.NetOwnerId
+         LEFT OUTER JOIN
+             @InAddress AS ad
+         ON mp.AddressId == ad.AddressId;
+
+//Hent de radene som finnes i tabell
+@EksisterendeRader =
+    SELECT *
+    FROM HafslundStromBI.dbo.MeterPoint;
+
+//Behold bare de radene som ikke finnes i nytt datasett
+@Filtrer =
+    SELECT a.PK_Meterpoint,
+           a.Id,
+           a.MeterpointId,
+           a.AddressId, 
+           a.MeterPointCreatedDate,
+           a.MeterPointUpdatedDate,
+           a.MeterPointStartDate,
+           a.NetOwner,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Source,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @EksisterendeRader AS a
+         LEFT ANTISEMIJOIN
+             @Meterpoint AS mp
+         ON a.Id == mp.Id;
+
+//for rader som finnes fra før
+@sjekkEndring =
+    SELECT a.PK_Meterpoint,
+           mp.Id,
+           mp.MeterpointId,
+           mp.AddressId,
+           mp.MeterPointCreatedDate,
+           mp.MeterPointUpdatedDate,
+           mp.MeterPointStartDate,
+           mp.NetOwner,
+           mp.StreetName,
+           mp.Number,
+           mp.Letter,
+           mp.Zip,
+           mp.CityName,
+           mp.CountryCode,
+           mp.Source,
+           a.DataLakeCreatedDate,
+           //hvis checksum er lik beholdes DataLakeUpdatedDate fra eksisterende rad
+           a.Checksum == mp.Checksum? a.DataLakeUpdatedDate : mp.DataLakeDate AS DataLakeUpdatedDate,
+           mp.Checksum
+    FROM @EksisterendeRader AS a
+         JOIN
+             @Meterpoint AS mp
+         ON a.Id == mp.Id;
+
+//nye rader
+@NyeRader =
+    SELECT ROW_NUMBER() OVER() AS PK_Meterpoint,
+           a.Id,
+           a.MeterpointId,
+           a.AddressId,
+           a.MeterPointCreatedDate,
+           a.MeterPointUpdatedDate,
+           a.MeterPointStartDate,
+           a.NetOwner,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Source,
+           a.DataLakeDate AS DataLakeCreatedDate,
+           a.DataLakeDate AS DataLakeUpdatedDate,
+           a.Checksum,
+           1 AS Join
+    FROM @Meterpoint AS a
+         LEFT ANTISEMIJOIN
+             @EksisterendeRader AS mp
+         ON a.Id == mp.Id;
+
+//Hent høyeste nøkkelverdi
+@MaxNokkel =
+    SELECT 1 AS Join,
+           MAX(PK_Meterpoint) AS MaxNokkel
+    FROM HafslundStromBI.dbo.MeterPoint;
+
+@NyeRader2 =
+    SELECT PK_Meterpoint + (MaxNokkel == null ? 0 : MaxNokkel) AS PK_Meterpoint,
+           a.Id,
+           a.MeterpointId,
+           a.AddressId,
+           a.MeterPointCreatedDate,
+           a.MeterPointUpdatedDate,
+           a.MeterPointStartDate,
+           a.NetOwner,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Source,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.Checksum
+    FROM @NyeRader AS a
+         JOIN
+             @MaxNokkel AS m
+         ON a.Join == m.Join;
+
+
+         
+
+//sett sammen for å lage nytt datasett
+@Nyttdatasett =
+    SELECT *
+    FROM @NyeRader2
+    UNION ALL
+    SELECT *
+    FROM @Filtrer
+    UNION ALL
+    SELECT *
+    FROM @sjekkEndring;
+          
+
+TRUNCATE TABLE HafslundStromBI.dbo.MeterPoint;
+
+INSERT INTO HafslundStromBI.dbo.MeterPoint
+SELECT *
+FROM @Nyttdatasett;
+
+//skriv data til fil
+OUTPUT @Nyttdatasett 
+    TO "/HafslundStromBI/ExportTilAzureSQLDW/Malepunkt.csv" 
+    USING Outputters.Csv();
+
+
+
+@MeterpointString =
+    SELECT 
+    Convert.ToString(PK_Meterpoint) AS PK_Meterpoint,
+    Convert.ToString(Id) AS Id,
+           MeterpointId,
+           MeterPointCreatedDate.ToString("dd.MM.yyyy HH:mm:ss") AS MeterPointCreatedDate,
+           MeterPointUpdatedDate.ToString("dd.MM.yyyy HH:mm:ss") AS MeterPointUpdatedDate,
+           MeterPointStartDate.ToString("dd.MM.yyyy HH:mm:ss") AS MeterPointStartDate,
+           NetOwner,
+           StreetName,
+           Number,
+           Letter,
+           Zip,
+           CityName,
+           CountryCode,
+           "HafslundStromContext" AS Source,
+           DataLakeCreatedDate.ToString("dd.MM.yyyy HH:mm:ss") AS DataLakeCreatedDate,
+           DataLakeUpdatedDate.ToString("dd.MM.yyyy HH:mm:ss") AS DataLakeUpdatedDate,
+           Checksum
+    FROM @Nyttdatasett;
+
+
+//lag headerrad. kombiner med data formatert som string
+@header = 
+    SELECT * FROM (VALUES (1, "PK_Meterpoint", "id", "MålepunktID", "Målepunkt startdato",  "Netteier",
+    "Gatenavn", "Gatenummer", "Gatebokstav", "Postnummer", "Poststed", "Landkode", 
+    "Opprettet dato", "Oppdatert dato", "Kilde", "Data Lake opprettet dato", "Data Lake oppdatert dato", "Checksum")) 
+    AS H(headerline, PK_Meterpoint, Id, MeterpointId,  MeterPointStartDate, NetOwner,
+    StreetName, Number, Letter, Zip, CityName, CountryCode, 
+    MeterPointCreatedDate, MeterPointUpdatedDate, Source, DataLakeCreatedDate, DataLakeUpdatedDate,  Checksum) 
+    UNION ALL 
+    SELECT 0 AS headerline, PK_Meterpoint,  Id, MeterpointId,  MeterPointStartDate, NetOwner,
+    StreetName, Number, Letter, Zip, CityName, CountryCode,
+    MeterPointCreatedDate, MeterPointUpdatedDate, Source, DataLakeCreatedDate, DataLakeUpdatedDate, Checksum
+    FROM @MeterpointString;
+
+
+//skriv data til fil
+OUTPUT @header 
+    TO "/HafslundStromBI/Malepunkt.csv" 
+    ORDER BY headerline DESC 
+    USING Outputters.Csv();

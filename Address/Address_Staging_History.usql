@@ -1,0 +1,301 @@
+﻿
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+DECLARE EXTERNAL @inputAddress string = "/HafslundStrom/Input/HafslundStromContext/Address.json";
+DECLARE EXTERNAL @inputZipCode string = "/HafslundStrom/Input/HafslundStromContext/ZipCode.json";
+DECLARE EXTERNAL @inputGeo string = "/HafslundStrom/ReferenceData/NorwegianZipCodesAndMunicipalCountyGeo.csv";
+
+DECLARE EXTERNAL @outTest string = "/HafslundStrom/Staging/Address.csv";
+
+// Extract + jsonify // 
+
+//Address
+@inAddressFile= 
+    EXTRACT jsonString string 
+    FROM @inputAddress
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyAddress = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recAddress 
+    FROM @inAddressFile; 
+
+//ZipCode
+@inZipFile= 
+    EXTRACT jsonString string 
+    FROM @inputZipCode 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyZip = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recZip 
+    FROM @inZipFile;
+
+//Geo
+@GeoLocation = EXTRACT
+    Postnummer string,
+    Poststed string,
+    PostnummerogSted string,
+    Bruksomrade string,
+    Folketall string,
+    Bydel string,
+    Kommunekode string,
+    Kommune string,
+    Fylke string,
+    Latitude string,
+    Longitude string,
+    Datakvalitetsindikator string, 
+    Datakvalitetsforklaring string,
+    Sistoppdatert string,
+    Tom string
+  
+FROM @inputGeo 
+USING Extractors.Text(delimiter:';', skipFirstNRows:1);
+
+
+// Foberedelse av data //
+
+@InAddressJSON = 
+    SELECT 
+    recAddress["Id"] AS AddressIdSource,
+    recAddress["StreetName"] AS StreetName,
+    recAddress["Number"] AS Number,
+    recAddress["Letter"] AS Letter,
+    recAddress["CO"] AS Co,
+    recAddress["Description"] AS Description,
+    recAddress["Note"] AS Note,
+    recAddress["GeoLocationId"] AS GeoLocationIdSource, 
+    recAddress["ZipCodeId"] AS ZipCodeIdSource,
+    recAddress["CreatedDate"] AS CreatedDate,
+    recAddress["UpdatedDate"] AS UpdatedDate
+FROM @jsonifyAddress;
+
+@InAddress =
+    SELECT 
+    Int32.Parse(AddressIdSource) AS AddressIdSource,
+    StreetName,
+    Number,
+    Letter,
+    Co,
+    Description,
+    Note,
+    Int32.Parse(GeoLocationIdSource == null ? "-1" : GeoLocationIdSource) AS GeoLocationIdSource,
+    Int32.Parse(ZipCodeIdSource == null ? "-1" : ZipCodeIdSource) AS ZipCodeIdSource,
+    DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+    DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InAddressJSON;
+
+
+@InZipJSON = 
+    SELECT 
+    recZip["Id"] AS ZipCodeIdSource,
+    recZip["Zip"] AS Zip,
+    recZip["CityName"] AS CityName,
+    recZip["CountryCode"] AS CountryCode                              
+    FROM @jsonifyZip;
+
+@InZipCode =
+    SELECT 
+    Int32.Parse(ZipCodeIdSource) AS ZipCodeIdSource,
+    Zip.Trim() AS Zip,
+    CityName,
+    CountryCode.Trim() AS CountryCode
+    FROM @InZipJSON;
+
+  //reduser antall kolonner i geolocation tabellen
+  
+@GL2 =
+    SELECT Postnummer,
+           Poststed,
+           Fylke,
+           Kommune,
+           Latitude,
+           Longitude,
+           "NO" AS Landkode
+    FROM @GeoLocation;
+
+ 
+ //join sammen tabeller
+@AddressAndZipCode =
+    SELECT ROW_NUMBER() OVER() AS HAIPAddressId, 
+           ad.AddressIdSource AS AddressIdSource,
+           ad.StreetName AS StreetName,
+           ad.Number AS Number,
+           ad.Letter AS Letter,
+           ad.Co AS Co,
+           ad.Description AS Description,
+           ad.Note AS Note,
+           ad.GeoLocationIdSource AS GeoLocationIdSource,
+           zp.Zip AS Zip,
+           zp.CityName AS CityName,
+           zp.CountryCode AS CountryCode,
+           gl.Kommune AS Kommune,
+           gl.Fylke AS Fylke,
+           gl.Latitude AS Latitude,
+           gl.Longitude AS Longitude,
+           ad.CreatedDate AS CreatedDateSource,
+           ad.UpdatedDate AS UpdatedDateSource,
+           DateTime.UtcNow.AddHours(2) AS DataLakeCreatedDate,
+           DateTime.UtcNow.AddHours(2) AS DataLakeUpdatedDate,
+           "Vite Context DB" AS DataSource,
+           HafslundCommon.Functions.CreateMD5(ad.StreetName + ad.Number + ad.Letter + ad.Co + ad.Description
+           + ad.Note + ad.GeoLocationIdSource + zp.Zip + zp.CityName + zp.CountryCode + gl.Kommune + 
+                                                 gl.Fylke + gl.Latitude + gl.Longitude) AS Checksum
+    
+    FROM @InAddress AS ad
+         JOIN
+             @InZipCode AS zp
+         ON ad.ZipCodeIdSource == zp.ZipCodeIdSource
+         LEFT OUTER JOIN
+             @GL2 AS gl
+         ON zp.Zip == gl.Postnummer
+            AND zp.CountryCode == gl.Landkode;
+
+//Staging 
+
+//Skriv til fil 
+// OUTPUT @AddressAndZipCode TO @outTest USING Outputters.Csv(outputHeader: true);
+
+//Staging
+
+
+/*
+DROP TABLE IF EXISTS Address;  
+
+CREATE TABLE Address2  (  
+       INDEX [idx_Address] CLUSTERED (HAIPAddressId ASC)    
+       PARTITIONED BY HASH (HAIPAddressId))   
+       AS SELECT * FROM @AddressAndZipCode;
+
+*/
+
+/*
+CREATE TABLE Address  (  
+       INDEX [idx_Address] CLUSTERED (HAIPAddressId ASC)    
+       PARTITIONED BY HASH (HAIPAddressId))   
+       AS SELECT * FROM @AddressAndZipCode;
+
+*/
+
+@DataH = SELECT * FROM Address; //historikk
+
+@DataU = SELECT * FROM @DataH AS h LEFT ANTISEMIJOIN @AddressAndZipCode AS a ON h.AddressIdSource == a.AddressIdSource 
+                                                                                AND h.DataSource == a.DataSource;
+// Uendra data
+
+@DataN = SELECT ROW_NUMBER() OVER() AS HAIPAddressId, // nye data
+           a.AddressIdSource,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationIdSource,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.CreatedDateSource,
+           a.UpdatedDateSource,
+           a.DataLakeCreatedDate,
+                a.DataLakeUpdatedDate,
+           a.DataSource,
+           a.Checksum,
+                1 AS Join
+                FROM @AddressAndZipCode AS a LEFT ANTISEMIJOIN @DataH AS h ON h.AddressIdSource == a.AddressIdSource 
+                                                                                AND h.DataSource == a.DataSource;
+@MaxNokkel =
+    SELECT 1 AS Join,
+           MAX(HAIPAddressId) AS MaxNokkel
+    FROM Address;
+
+@DataN2 = SELECT 
+           HAIPAddressId + (MaxNokkel == null ? 0 : MaxNokkel) AS HAIPAddressId, // nye data 2
+          //HAIPAddressID, 
+           a.AddressIdSource,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationIdSource,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.CreatedDateSource,
+           a.UpdatedDateSource,
+           a.DataLakeCreatedDate,
+           a.DataLakeUpdatedDate,
+           a.DataSource,
+           a.Checksum
+   FROM @DataN AS a
+         JOIN
+             @MaxNokkel AS m
+         ON a.Join == m.Join;
+ 
+ 
+ @DataPE = SELECT //Potensielt endra
+           h.HAIPAddressId, 
+           // a
+           a.AddressIdSource,
+           a.StreetName,
+           a.Number,
+           a.Letter,
+           a.Co,
+           a.Description,
+           a.Note,
+           a.GeoLocationIdSource,
+           a.Zip,
+           a.CityName,
+           a.CountryCode,
+           a.Kommune,
+           a.Fylke,
+           a.Latitude,
+           a.Longitude,
+           a.CreatedDateSource,
+           a.UpdatedDateSource,
+           h.DataLakeCreatedDate AS DataLakeCreatedDate,
+           a.Checksum == h.Checksum? h.DataLakeUpdatedDate : a.DataLakeUpdatedDate AS DataLakeUpdatedDate,
+           a.DataSource,
+           a.Checksum
+                 
+           FROM 
+           
+           @AddressAndZipCode        
+           AS a INNER JOIN 
+           @DataH AS h ON h.AddressIdSource == a.AddressIdSource AND h.DataSource == a.DataSource; //Potensielt endra data
+ 
+ // Union DataU, DataN, DataPE 
+ 
+ @DataA =  // All data
+    SELECT *
+    FROM @DataN2
+    UNION ALL
+    SELECT *
+    FROM @DataU
+    UNION ALL
+    SELECT *
+    FROM @DataPE;
+ 
+ 
+ //tøm tabell
+TRUNCATE TABLE Address;
+
+//last tabell på nytt
+INSERT INTO Address
+SELECT *
+FROM @DataA;
+
+OUTPUT @DataA 
+    TO  @outTest
+    USING Outputters.Csv(outputHeader: true);
+ 
+
+

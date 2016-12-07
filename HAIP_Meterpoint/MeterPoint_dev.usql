@@ -1,0 +1,211 @@
+﻿
+REFERENCE ASSEMBLY [Newtonsoft.Json];
+REFERENCE ASSEMBLY [Microsoft.Analytics.Samples.Formats];
+REFERENCE ASSEMBLY [HafslundCommon];
+
+//Input
+DECLARE EXTERNAL @inputMeterpoint string = "/HafslundStrom/Input/HafslundStromContext/Meterpoint.json";
+DECLARE EXTERNAL @inputMeter string = "/HafslundStrom/Input/HafslundStromContext/Meter.json";
+DECLARE EXTERNAL @inputMeterType string = "/HafslundStrom/Input/HafslundStromContext/MeterType.json";
+DECLARE EXTERNAL @inputNetowner string = "/HafslundStrom/Input/HafslundStromContext/NetOwner.json";
+
+//Output
+DECLARE EXTERNAL @outMeterpoint string = "/HafslundStrom/Staging/Meterpoint.csv";
+//DECLARE EXTERNAL @outNetOwner string = "/HafslundStrom/Staging/NetOwner.csv"; ?
+
+// Hei
+// Skaff eksempeldata, a. 
+// Hei
+
+
+
+// Extract + jsonify // 
+
+// Meterpoint
+@inMeterpointFile = 
+    EXTRACT jsonString string 
+    FROM @inputMeterpoint
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyMeterpoint = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recMeterpoint 
+    FROM @inMeterpointFile; 
+
+// Meter
+@inMeterFile= 
+    EXTRACT jsonString string 
+    FROM @inputMeter 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyMeter = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recMeter 
+    FROM @inMeterFile;
+
+// MeterType
+@inMeterTypeFile= 
+    EXTRACT jsonString string 
+    FROM @inputMeterType 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyMeterType = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recMeterType 
+    FROM @inMeterTypeFile;
+
+// NetOwner
+
+@inNetownerFile= 
+    EXTRACT jsonString string 
+    FROM @inputNetowner 
+    USING Extractors.Text(delimiter:'\b', quoting:false);
+@jsonifyNetowner = 
+    SELECT Microsoft.Analytics.Samples.Formats.Json.JsonFunctions.JsonTuple(jsonString) AS recNetowner
+    FROM @inNetownerFile;
+
+// Foberedelse av data //
+
+// Meterpoint
+
+@InMeterpointJSON = 
+    SELECT 
+        recMeterpoint["Id"] AS KeyViteId,
+        recMeterpoint["MeterpointId"] AS MeterpointId,
+        recMeterpoint["AddressId"] AS ViteAddressId,
+        recMeterpoint["NetOwnerId"] AS ViteNetOwnerId,
+        recMeterpoint["MeterId"] AS ViteMeterId,
+        recMeterpoint["EstimatedAnnualConsumptionDate"] AS EstimatedAnnualConsumptionDate,
+        recMeterpoint["EstimatedAnnualConsumption"] AS EstimatedAnnualConsumption,
+        recMeterpoint["MeterpointStartDate"] AS MeterpointStartDate,
+        recMeterpoint["CreatedDate"] AS CreatedDate,
+        recMeterpoint["UpdatedDate"] AS UpdatedDate
+    FROM @jsonifyMeterpoint;
+
+
+@InMeterpoint =
+    SELECT
+    Int32.Parse(KeyViteId) AS ViteMeterpointId,
+    MeterpointId,
+    ViteAddressId AS ViteAddressId,
+    ViteNetOwnerId AS ViteNetOwnerId,
+    ViteMeterId AS ViteMeterId,
+    DateTime.Parse(EstimatedAnnualConsumptionDate == null ? "1800-01-01 00:00:00" : EstimatedAnnualConsumptionDate) AS EstimatedAnnualConsumptionDate ,
+    Double.Parse(EstimatedAnnualConsumption == null ? "0.0" : EstimatedAnnualConsumption) AS EstimatedAnnualConsumption,
+    DateTime.Parse(MeterpointStartDate == null ? "1800-01-01 00:00:00" : MeterpointStartDate) AS MeterpointStartDate,
+    DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+    DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    
+    FROM @InMeterpointJSON;
+    
+
+ //Meter
+
+@InMeterJSON =
+    SELECT
+        recMeter["Id"] AS KeyViteId,
+        recMeter["MeterNumber"] AS MeterNumber,
+        recMeter["MeterTypeId"] AS MeterTypeId,
+        recMeter["MeterInstallDate"] AS MeterInstallDate,
+        recMeter["CreatedDate"] AS CreatedDate,
+        recMeter["UpdatedDate"] AS UpdatedDate
+    FROM @jsonifyMeter;
+
+@InMeter = 
+    SELECT
+        KeyViteId AS ViteMeterId,
+        MeterNumber,
+        MeterTypeId AS ViteMeterTypeId,
+        DateTime.Parse(MeterInstallDate == null ? "1800-01-01 00:00:00" : MeterInstallDate) AS MeterInstallDate,
+        DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+        DateTime.Parse(UpdatedDate == null ? "2999-12-31 23:59:59" : UpdatedDate) AS UpdatedDate
+    FROM @InMeterJSON;
+
+// MeterType
+
+@InMeterTypeJSON = 
+SELECT
+recMeterType["Id"] AS KeyViteId,
+recMeterType["Type"] AS MeterType
+FROM @jsonifyMeterType;
+
+@InMeterType = 
+    SELECT
+        KeyViteId AS ViteMeterTypeId, // INT Id-er?
+        MeterType
+    FROM @InMeterTypeJSON;
+
+
+// NetOwner
+
+@InNetOwnerJSON = 
+    SELECT
+        recNetowner["Id"] AS KeyViteId,
+        recNetowner["CreatedDate"] AS CreatedDate,
+        recNetowner["ExternalId"] AS ExternalId,
+        recNetowner["GridOwnerName"] AS GridOwnerName,
+        recNetowner["GridOwnerNumber"] AS GridOwnerNumber,
+        recNetowner["GridCode"] AS GridCode
+    FROM @jsonifyNetowner;
+
+@InNetOwner = 
+    SELECT
+        KeyViteId AS ViteNetOwnerId,
+        DateTime.Parse(CreatedDate == null ? "1800-01-01 00:00:00" : CreatedDate) AS CreatedDate,
+        ExternalId,
+        GridOwnerName,
+        GridOwnerNumber,
+        GridCode
+    FROM @InNetOwnerJSON;
+
+
+
+    // Join sammen tabeller //
+    
+    @Meterpoint = 
+        SELECT
+                ROW_NUMBER() OVER() AS  HAIPMeterpointId, 
+               mp.MeterpointId AS MeterpointId,
+               m.MeterNumber AS MeterNumber,
+               mp.EstimatedAnnualConsumptionDate AS EstimatedAnnualConsumptionDate,
+               mp.EstimatedAnnualConsumption AS EstimatedAnnualConsumption,
+               mp.MeterpointStartDate AS MeterpointStartDate,
+               mp.ViteAddressId AS ViteAddressId,
+               
+             
+               
+                        
+               m.MeterInstallDate AS MeterInstallDate,
+               mt.MeterType AS MeterType, 
+                         
+               no.ExternalId AS ExternalId,
+               no.GridOwnerName AS GridOwnerName,
+               no.GridOwnerNumber AS GridOwnerNumber,
+               no.GridCode AS GridCode,
+               mp.ViteNetOwnerId AS ViteNetOwnerId,
+               mp.ViteMeterId AS ViteMeterId,
+               mp.CreatedDate AS CreatedDate,
+               mp.UpdatedDate AS UpdatedDate,
+               DateTime.UtcNow.AddHours(2) AS DataLakeDate,
+               "Vite Context DB" AS DataSource,
+               HafslundCommon.Functions.CreateMD5(mp.ViteMeterpointId + mp.MeterpointId + mp.MeterpointId + m.MeterNumber + mp.EstimatedAnnualConsumptionDate
+                                                     + mp.EstimatedAnnualConsumption + mp.MeterpointStartDate + mp.ViteAddressId + m.MeterInstallDate
+                                                + mt.MeterType  + no.ExternalId + no.GridOwnerName + no.GridOwnerNumber + no.GridCode 
+                                                + mp.ViteNetOwnerId + mp.ViteMeterId + mp.CreatedDate + mp.UpdatedDate) AS Checksum
+        FROM @InMeterpoint AS mp 
+        JOIN
+        @InMeter AS m 
+        ON mp.ViteMeterId == m.ViteMeterId
+        JOIN
+        @InMeterType AS mt
+        ON m.ViteMeterTypeId == mt.ViteMeterTypeId 
+        JOIN
+        @InNetOwner AS no
+        ON mp.ViteNetOwnerId == no.ViteNetOwnerId;
+
+CREATE TABLE IF NOT EXISTS Meterpoint  (  
+       INDEX [idx_Meterpoint] CLUSTERED (HAIPMeterpointId ASC)    
+       PARTITIONED BY HASH (HAIPMeterpointId))   
+       AS SELECT * FROM @Meterpoint;
+    
+//Skriv til fil
+OUTPUT @Meterpoint TO @outMeterpoint USING Outputters.Csv(outputHeader: true);
+//OUTPUT @NetOwner TO @outNetOwner USING Outputters.Csv(outputHeader: true); ?
+
+
+
+ 

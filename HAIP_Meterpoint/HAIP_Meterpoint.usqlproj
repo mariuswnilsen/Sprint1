@@ -1,0 +1,43 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>669c26f7-5541-48ab-b9c4-8f6dc0697ce3</ProjectGuid>
+    <OutputType>File</OutputType>
+    <AssemblyName>Algebra.xml</AssemblyName>
+    <TargetFrameworkVersion>v4.5.2</TargetFrameworkVersion>
+    <Name>HAIP_Meterpoint</Name>
+    <RootNamespace>HAIP_Meterpoint</RootNamespace>
+    <RuntimeVersion>default</RuntimeVersion>
+    <OutputStreamPath>C:\Users\mnilsen\AppData\Local\USQLDataRoot</OutputStreamPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <OutputPath>bin\Debug\</OutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugSymbols>false</DebugSymbols>
+    <OutputPath>bin\Release\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Script Include="MeterPoint_dev.usql" />
+    <Script Include="malepunkt_f1.usql" />
+    <Script Include="Meterpoint_history.usql" />
+    <Script Include="Meterpoint_table.usql" />
+    <ScriptCode Include="MeterPoint_dev.usql.cs">
+      <DependentUpon>MeterPoint_dev.usql</DependentUpon>
+    </ScriptCode>
+    <ScriptCode Include="malepunkt_f1.usql.cs">
+      <DependentUpon>malepunkt_f1.usql</DependentUpon>
+    </ScriptCode>
+    <ScriptCode Include="Meterpoint_history.usql.cs">
+      <DependentUpon>Meterpoint_history.usql</DependentUpon>
+    </ScriptCode>
+    <ScriptCode Include="Meterpoint_table.usql.cs">
+      <DependentUpon>Meterpoint_table.usql</DependentUpon>
+    </ScriptCode>
+  </ItemGroup>
+  <Import Project="$(AppData)\Microsoft\DataLake\MsBuild\1.0\Usql.targets" />
+</Project>
